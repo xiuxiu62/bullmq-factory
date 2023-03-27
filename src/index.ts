@@ -1,4 +1,4 @@
-import { Job, Queue, Worker } from "bullmq";
+import { BulkJobOptions, Job, Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 
 export class QueueBundle<Message, Response> {
@@ -21,8 +21,11 @@ export class QueueBundle<Message, Response> {
     return await this.queue.add(this.title, message, { lifo: run_immediately });
   }
 
-  async add_many(messages: Array<{ name: string, data: Message }>): Promise<Array<Job<Message, Response, string>>> {
-    return await this.queue.addBulk(messages);
+  // async add_many(messages: Array<Message> | Array<{ data: Message, opts: BulkJobOptions }>): Promise<Array<Job<Message, Response, string>>> {
+  async add_many(messages: Array<{ data: Message, opts?: BulkJobOptions }>): Promise<Array<Job<Message, Response, string>>> {
+    // async add_many(messages: Array<Message>): Promise<Array<Job<Message, Response, string>>> {
+    return await this.queue.addBulk(messages.map(({ data, opts }) => ({ name: this.title, data, opts })));
+    // return await this.queue.addBulk(messages.map((message: any) => ({ name: this.title, data: message })));
   }
 
   async job_count(): Promise<number> {
@@ -92,10 +95,6 @@ export class QueueBuilder<Message, Response> {
         }
       });
 
-    queue.on("waiting", (job: Job) => {
-      console.log("here");
-    });
-
     const worker = new Worker<Message, Response>(
       this.props.title,
       this.props.processor,
@@ -144,7 +143,7 @@ type UserJob = Job<UserData, UserResponse, string>;
 (async () => {
   try {
     async function job_handler(job: UserJob): Promise<string> {
-      console.log(`hello ${job.data.name}`);
+      console.log("hi", job.data.name);
 
       return job.data.name;
     }
@@ -153,14 +152,25 @@ type UserJob = Job<UserData, UserResponse, string>;
       queue_factory.new<UserData, string>()
         .title("user")
         .processor(job_handler)
-        .on_complete((_job, name) => console.log("Done saying hi to ", name))
+        .on_complete((_job, name) => console.log("Done saying hi to", name))
         .on_failure((job, _err) => console.log("Failed to say hi to", job?.data.name, ":("))
         .build();
 
-    await user_bundle.add({ name: "xiuxiu" });
+    // await user_bundle.add({ name: "xiuxiu" });
+    await user_bundle.add_many([
+      { data: { name: "xiuxiu" } },
+      {
+        data: { name: "chad" },
+        opts: { lifo: true }
+      },
+      { data: { name: "cloud" } }
+      // { name: "xiuxiu" },
+      // { name: "chad" },
+      // { name: "cloud" },
+    ]);
 
-    const queue_name = user_bundle.queue.name;
-    console.log(`<${queue_name}> jobs:`, await user_bundle.job_count());
+    // const queue_name = user_bundle.queue.name;
+    // console.log(`<${queue_name}> jobs:`, await user_bundle.job_count());
   } catch (err) {
     handle_error(err);
   }
